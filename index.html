@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+    <title>Unity Web Player | Teachable</title>
+
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #0f172a;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+
+        #main-layout {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        #unity-area {
+            flex: 1;
+            min-width: 0;
+            height: 100vh;
+            background: #111827;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        #unity-container {
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
+            transform: none !important;
+        }
+
+        #unity-canvas {
+            background: #231f20;
+            display: block;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+        }
+
+        #unity-footer,
+        #unity-fullscreen-button,
+        #unity-logo-title-footer,
+        #unity-build-title {
+            display: none !important;
+        }
+
+        #unity-warning {
+            position: absolute;
+            left: 50%;
+            top: 5%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+
+        #pose-panel {
+            width: 340px;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.98);
+            border-left: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
+            padding: 18px 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            overflow: hidden;
+        }
+
+        #pose-panel h1 {
+            font-size: 22px;
+            margin: 0 0 8px 0;
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: #cbd5e1;
+            margin-bottom: 14px;
+        }
+
+        button {
+            width: 100%;
+            padding: 13px 0;
+            border: none;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #22c55e, #14b8a6);
+            color: white;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 14px;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        #camera-wrap {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            background: black;
+            border-radius: 18px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        #camera-canvas,
+        #overlay-canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #camera-canvas {
+            z-index: 1;
+            background: black;
+        }
+
+        #overlay-canvas {
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #main-result {
+            margin-top: 14px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #38bdf8;
+            line-height: 1.3;
+        }
+
+        #guide-text {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #cbd5e1;
+        }
+
+        #server-status {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        #label-container {
+            width: 100%;
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow-y: auto;
+            min-height: 0;
+            padding-right: 2px;
+        }
+
+        .label-row {
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .label-name {
+            color: #e2e8f0;
+        }
+
+        .label-percent {
+            color: #86efac;
+            font-weight: bold;
+        }
+
+        .pose-none {
+            color: #cbd5e1 !important;
+        }
+
+        .pose-down {
+            color: #facc15 !important;
+        }
+
+        .pose-up {
+            color: #4ade80 !important;
+        }
+
+        @media (max-width: 1200px) {
+            #pose-panel {
+                width: 320px;
+            }
+
+            #unity-area {
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="main-layout">
+        <div id="unity-area">
+            <div id="unity-container" class="unity-desktop">
+                <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
+
+                <div id="unity-loading-bar">
+                    <div id="unity-logo"></div>
+                    <div id="unity-progress-bar-empty">
+                        <div id="unity-progress-bar-full"></div>
+                    </div>
+                </div>
+
+                <div id="unity-warning"></div>
+            </div>
+        </div>
+
+        <div id="pose-panel">
+            <h1>POSE CONTROLLER</h1>
+            <div class="subtitle">초록 박스 안에 다리가 들어오면 포즈를 인식합니다</div>
+
+            <button type="button" onclick="init()">Start Camera</button>
+
+            <div id="camera-wrap">
+                <canvas id="camera-canvas"></canvas>
+                <canvas id="overlay-canvas"></canvas>
+            </div>
+
+            <div id="main-result">현재 상태: None</div>
+            <div id="guide-text">Start Camera 버튼을 눌러주세요</div>
+            <div id="server-status">Unity 전송 대기 중</div>
+
+            <div id="label-container"></div>
+        </div>
+    </div>
+
+    <!-- Teachable Machine Pose 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+    <!-- Unity WebGL 로딩 -->
+    <script>
+        var unityCanvas = document.querySelector("#unity-canvas");
+
+        function unityShowBanner(msg, type) {
+            var warningBanner = document.querySelector("#unity-warning");
+
+            function updateBannerVisibility() {
+                warningBanner.style.display = warningBanner.children.length ? "block" : "none";
+            }
+
+            var div = document.createElement("div");
+            div.innerHTML = msg;
+            warningBanner.appendChild(div);
+
+            if (type == "error") {
+                div.style = "background: red; padding: 10px;";
+            }
+            else {
+                if (type == "warning") {
+                    div.style = "background: yellow; padding: 10px;";
+                }
+
+                setTimeout(function () {
+                    warningBanner.removeChild(div);
+                    updateBannerVisibility();
+                }, 5000);
+            }
+
+            updateBannerVisibility();
+        }
+
+        var buildUrl = "Build";
+        var loaderUrl = buildUrl + "/AI.loader.js";
+
+        var config = {
+            arguments: [],
+            dataUrl: buildUrl + "/AI.data",
+            frameworkUrl: buildUrl + "/AI.framework.js",
+            codeUrl: buildUrl + "/AI.wasm",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "DefaultCompany",
+            productName: "Teachable",
+            productVersion: "1.0",
+            showBanner: unityShowBanner
+        };
+
+        function resizeUnityCanvas() {
+            const posePanelWidth = 340;
+            const padding = 48;
+
+            const availableWidth = window.innerWidth - posePanelWidth - padding;
+            const availableHeight = window.innerHeight - padding;
+
+            const aspect = 960 / 600;
+
+            let width = Math.min(960, availableWidth, availableHeight * aspect);
+            let height = width / aspect;
+
+            if (width < 300) {
+                width = Math.max(240, availableWidth);
+                height = width / aspect;
+            }
+
+            unityCanvas.style.width = width + "px";
+            unityCanvas.style.height = height + "px";
+        }
+
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+            var meta = document.createElement("meta");
+            meta.name = "viewport";
+            meta.content = "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes";
+            document.getElementsByTagName("head")[0].appendChild(meta);
+
+            document.querySelector("#unity-container").className = "unity-mobile";
+            unityCanvas.className = "unity-mobile";
+        }
+        else {
+            resizeUnityCanvas();
+            window.addEventListener("resize", resizeUnityCanvas);
+        }
+
+        document.querySelector("#unity-loading-bar").style.display = "block";
+
+        var unityLoaderScript = document.createElement("script");
+        unityLoaderScript.src = loaderUrl;
+
+        unityLoaderScript.onload = () => {
+            createUnityInstance(unityCanvas, config, (progress) => {
+                document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
+            }).then((unityInstance) => {
+                window.unityInstance = unityInstance;
+
+                document.querySelector("#unity-loading-bar").style.display = "none";
+                document.getElementById("server-status").innerHTML = "Unity 로딩 완료";
+            }).catch((message) => {
+                alert(message);
+            });
+        };
+
+        document.body.appendChild(unityLoaderScript);
+    </script>
+
+    <!-- Teachable Machine Pose 인식 -->
+    <script>
+        // 여기를 네 Teachable Machine 모델 주소로 바꿔줘
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/NzEnZFdmK/";
+
+        let model;
+        let webcam;
+
+        let cameraCanvas;
+        let overlayCanvas;
+        let cameraCtx;
+        let overlayCtx;
+
+        let labelContainer;
+        let maxPredictions;
+
+        let latestPose = null;
+
+        let currentStablePose = "None";
+        let candidatePose = "None";
+        let candidateCount = 0;
+
+        let lastSentPose = "None";
+        let lastSendTime = 0;
+
+        let isPoseRunning = false;
+        let isPredicting = false;
+
+        let jumpReady = false;
+        let alreadyJumpedFromThisDown = false;
+        let lastJumpTime = 0;
+
+        // Up 상태에서 그냥 서 있을 때 점프되는 것을 막기 위한 변수
+        let downStartTime = 0;
+        let downReadyTime = 0;
+        let noneStartTime = 0;
+
+        // Down을 이 시간 이상 유지해야 진짜 앉은 것으로 인정
+        const minDownHoldMs = 500;
+
+        // Down 인정 후 이 시간 안에 Up이 와야 점프
+        const maxUpAfterDownMs = 2000;
+
+        // 점프 후 연속 점프 방지 시간
+        const jumpCooldownMs = 900;
+
+        const minProbability = 0.45;
+        const downMinProbability = 0.50;
+
+        const downStableFrameCount = 1;
+        const noneStableFrameCount = 4;
+
+        const sendInterval = 30;
+        const predictInterval = 50;
+
+        // 다리만 보이도록 카메라 아래쪽을 확대해서 보여주는 비율
+        // 0.36이면 위쪽 36%를 잘라내고, 엉덩이~발 쪽을 크게 보여줌
+        const LEG_VIEW_TOP_RATIO = 0.36;
+        const LEG_CONFIDENCE = 0.20;
+
+        async function init() {
+            if (isPoseRunning) {
+                return;
+            }
+
+            try {
+                document.getElementById("main-result").innerHTML = "로딩 중...";
+                document.getElementById("guide-text").innerHTML = "모델을 불러오고 있습니다";
+                document.getElementById("server-status").innerHTML = "Unity 연결 준비 중";
+
+                const modelURL = MODEL_URL + "model.json";
+                const metadataURL = MODEL_URL + "metadata.json";
+
+                model = await tmPose.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                const size = 320;
+                const flip = true;
+
+                webcam = new tmPose.Webcam(size, size, flip);
+                await webcam.setup();
+                await webcam.play();
+
+                cameraCanvas = document.getElementById("camera-canvas");
+                overlayCanvas = document.getElementById("overlay-canvas");
+
+                cameraCanvas.width = size;
+                cameraCanvas.height = size;
+                overlayCanvas.width = size;
+                overlayCanvas.height = size;
+
+                cameraCtx = cameraCanvas.getContext("2d");
+                overlayCtx = overlayCanvas.getContext("2d");
+
+                labelContainer = document.getElementById("label-container");
+                labelContainer.innerHTML = "";
+
+                for (let i = 0; i < maxPredictions; i++) {
+                    const row = document.createElement("div");
+                    row.className = "label-row";
+                    row.innerHTML = `
+                        <span class="label-name">Class</span>
+                        <span class="label-percent">0%</span>
+                    `;
+                    labelContainer.appendChild(row);
+                }
+
+                document.getElementById("main-result").innerHTML = "현재 상태: None";
+                document.getElementById("guide-text").innerHTML = "초록 박스 안에 다리가 들어오게 서주세요";
+
+                sendPoseNow("None");
+
+                isPoseRunning = true;
+
+                window.requestAnimationFrame(drawLoop);
+                setInterval(predictLoop, predictInterval);
+            }
+            catch (error) {
+                console.error(error);
+                document.getElementById("main-result").innerHTML = "오류 발생";
+                document.getElementById("guide-text").innerHTML = error.message;
+                document.getElementById("server-status").innerHTML = "카메라 또는 모델 오류";
+            }
+        }
+
+        function drawLoop() {
+            if (!isPoseRunning) {
+                return;
+            }
+
+            if (webcam && webcam.canvas && cameraCtx && overlayCtx) {
+                webcam.update();
+
+                // 화면에는 다리 쪽만 크게 보이게 아래쪽만 잘라서 그림
+                drawLegCameraView();
+
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+                drawCenterBox();
+
+                if (latestPose) {
+                    drawLegPose(latestPose);
+                    drawLegCenter(latestPose);
+                }
+            }
+
+            window.requestAnimationFrame(drawLoop);
+        }
+
+        function drawLegCameraView() {
+            const sourceY = webcam.canvas.height * LEG_VIEW_TOP_RATIO;
+            const sourceHeight = webcam.canvas.height - sourceY;
+
+            cameraCtx.drawImage(
+                webcam.canvas,
+                0,
+                sourceY,
+                webcam.canvas.width,
+                sourceHeight,
+                0,
+                0,
+                cameraCanvas.width,
+                cameraCanvas.height
+            );
+        }
+
+        function mapToLegView(position) {
+            const sourceY = cameraCanvas.height * LEG_VIEW_TOP_RATIO;
+            const sourceHeight = cameraCanvas.height - sourceY;
+
+            return {
+                x: position.x,
+                y: ((position.y - sourceY) / sourceHeight) * cameraCanvas.height
+            };
+        }
+
+        function getKeypoint(pose, partName) {
+            if (!pose || !pose.keypoints) return null;
+            return pose.keypoints.find(p => p.part === partName);
+        }
+
+        function getLegPoints(pose) {
+            const partNames = [
+                "leftHip",
+                "rightHip",
+                "leftKnee",
+                "rightKnee",
+                "leftAnkle",
+                "rightAnkle"
+            ];
+
+            let points = [];
+
+            for (let i = 0; i < partNames.length; i++) {
+                const point = getKeypoint(pose, partNames[i]);
+
+                if (point && point.score >= LEG_CONFIDENCE) {
+                    points.push(point);
+                }
+            }
+
+            return points;
+        }
+
+        function drawLegPose(pose) {
+            if (!pose || !pose.keypoints) return;
+
+            const legLines = [
+                ["leftHip", "leftKnee"],
+                ["leftKnee", "leftAnkle"],
+                ["rightHip", "rightKnee"],
+                ["rightKnee", "rightAnkle"],
+                ["leftHip", "rightHip"]
+            ];
+
+            overlayCtx.lineWidth = 3;
+            overlayCtx.strokeStyle = "#38bdf8";
+
+            for (let i = 0; i < legLines.length; i++) {
+                const a = getKeypoint(pose, legLines[i][0]);
+                const b = getKeypoint(pose, legLines[i][1]);
+
+                if (!a || !b) continue;
+                if (a.score < LEG_CONFIDENCE || b.score < LEG_CONFIDENCE) continue;
+
+                const pa = mapToLegView(a.position);
+                const pb = mapToLegView(b.position);
+
+                overlayCtx.beginPath();
+                overlayCtx.moveTo(pa.x, pa.y);
+                overlayCtx.lineTo(pb.x, pb.y);
+                overlayCtx.stroke();
+            }
+
+            const legPoints = getLegPoints(pose);
+
+            for (let i = 0; i < legPoints.length; i++) {
+                const p = mapToLegView(legPoints[i].position);
+
+                overlayCtx.beginPath();
+                overlayCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+                overlayCtx.fillStyle = "#facc15";
+                overlayCtx.fill();
+
+                overlayCtx.lineWidth = 2;
+                overlayCtx.strokeStyle = "#000000";
+                overlayCtx.stroke();
+            }
+        }
+
+        async function predictLoop() {
+            if (!isPoseRunning) return;
+            if (isPredicting) return;
+            if (!model || !webcam || !webcam.canvas) return;
+
+            isPredicting = true;
+
+            try {
+                const result = await model.estimatePose(webcam.canvas);
+                const pose = result.pose;
+                const posenetOutput = result.posenetOutput;
+
+                latestPose = pose;
+
+                let rawPose = "None";
+                let rawProbability = 0;
+
+                if (!isPlayerInCenter(pose)) {
+                    rawPose = "None";
+                    rawProbability = 0;
+                    updateLabelsWaiting();
+                }
+                else {
+                    const prediction = await model.predict(posenetOutput);
+
+                    let noneProbability = 0;
+                    let downProbability = 0;
+                    let upProbability = 0;
+
+                    for (let i = 0; i < maxPredictions; i++) {
+                        const className = prediction[i].className.trim();
+                        const probability = prediction[i].probability;
+                        const percent = Math.round(probability * 100);
+
+                        labelContainer.children[i].innerHTML = `
+                            <span class="label-name">${className}</span>
+                            <span class="label-percent">${percent}%</span>
+                        `;
+
+                        if (className === "None") {
+                            noneProbability = probability;
+                        }
+                        else if (className === "Down") {
+                            downProbability = probability;
+                        }
+                        else if (className === "Up") {
+                            upProbability = probability;
+                        }
+                    }
+
+                    if (
+                        upProbability >= minProbability &&
+                        upProbability > downProbability &&
+                        upProbability > noneProbability
+                    ) {
+                        rawPose = "Up";
+                        rawProbability = upProbability;
+                    }
+                    else if (
+                        downProbability >= downMinProbability &&
+                        downProbability > upProbability &&
+                        downProbability > noneProbability
+                    ) {
+                        rawPose = "Down";
+                        rawProbability = downProbability;
+                    }
+                    else {
+                        rawPose = "None";
+                        rawProbability = noneProbability;
+                    }
+                }
+
+                handlePose(rawPose, rawProbability);
+            }
+            catch (error) {
+                console.error("예측 오류:", error);
+            }
+
+            isPredicting = false;
+        }
+
+        function handlePose(rawPose, rawProbability) {
+            const now = Date.now();
+
+            if (rawPose === candidatePose) {
+                candidateCount++;
+            }
+            else {
+                candidatePose = rawPose;
+                candidateCount = 1;
+            }
+
+            // Down 처리
+            // Down은 Unity로 계속 보내야 앉아있는 시간이 Unity에서 정확히 누적됨
+            if (rawPose === "Down" && candidateCount >= downStableFrameCount) {
+                noneStartTime = 0;
+
+                if (downStartTime === 0) {
+                    downStartTime = now;
+                }
+
+                const downHoldTime = now - downStartTime;
+
+                currentStablePose = "Down";
+
+                updateResultUI(
+                    "Down",
+                    rawProbability,
+                    "현재 상태: Down",
+                    "앉은 자세 유지 중: " + (downHoldTime / 1000).toFixed(1) + "초"
+                );
+
+                // 중요: Down을 바로 Unity로 반복 전송
+                sendPoseRepeated("Down");
+
+                // Down을 최소 시간 이상 유지해야 점프 준비 완료
+                if (downHoldTime >= minDownHoldMs) {
+                    jumpReady = true;
+                    alreadyJumpedFromThisDown = false;
+                    downReadyTime = now;
+                }
+
+                return;
+            }
+
+            // Up 처리
+            // 시작 전 3초 유지가 작동하려면 그냥 서 있는 Up도 Unity로 계속 보내야 함
+            if (rawPose === "Up") {
+                noneStartTime = 0;
+
+                currentStablePose = "Up";
+
+                updateResultUI(
+                    "Up",
+                    rawProbability,
+                    "현재 상태: Up",
+                    "일어선 자세 감지 중"
+                );
+
+                // 중요: Up을 Unity로 반복 전송
+                sendPoseRepeated("Up");
+
+                const isValidJump =
+                    jumpReady &&
+                    !alreadyJumpedFromThisDown &&
+                    downReadyTime > 0 &&
+                    now - downReadyTime <= maxUpAfterDownMs &&
+                    now - lastJumpTime > jumpCooldownMs;
+
+                if (isValidJump) {
+                    alreadyJumpedFromThisDown = true;
+                    jumpReady = false;
+                    downStartTime = 0;
+                    downReadyTime = 0;
+                    lastJumpTime = now;
+
+                    // 점프 순간에는 확실하게 한 번 더 Up 전송
+                    sendPoseNow("Up");
+                }
+
+                return;
+            }
+
+            // None 처리
+            // None도 일정 시간 이상이면 Unity로 보내서 끊김 상태를 알려줌
+            if (rawPose === "None" && candidateCount >= noneStableFrameCount) {
+                currentStablePose = "None";
+
+                if (noneStartTime === 0) {
+                    noneStartTime = now;
+                }
+
+                const noneHoldTime = now - noneStartTime;
+
+                updateResultUI(
+                    "None",
+                    rawProbability,
+                    "현재 상태: None",
+                    "다리를 중앙에 맞추거나 자세를 확실히 해주세요"
+                );
+
+                if (noneHoldTime >= 800) {
+                    jumpReady = false;
+                    alreadyJumpedFromThisDown = false;
+                    downStartTime = 0;
+                    downReadyTime = 0;
+
+                    sendPoseRepeated("None");
+                }
+
+                return;
+            }
+
+            updateResultUI(
+                currentStablePose,
+                rawProbability,
+                "현재 상태: " + currentStablePose,
+                getGuideText(rawPose)
+            );
+        }
+
+        function getGuideText(poseName) {
+            if (poseName === "Down") {
+                return "앉은 자세 확인 중";
+            }
+
+            if (poseName === "Up") {
+                return "일어선 자세 감지 중";
+            }
+
+            return "다리를 중앙에 맞추거나 자세를 확실히 해주세요";
+        }
+
+        function sendPoseNow(poseName) {
+            lastSendTime = Date.now();
+            lastSentPose = poseName;
+            sendPose(poseName);
+        }
+
+        function sendPoseRepeated(poseName) {
+            const now = Date.now();
+
+            if (now - lastSendTime < sendInterval) {
+                return;
+            }
+
+            lastSendTime = now;
+            lastSentPose = poseName;
+
+            // 중요: 같은 자세여도 계속 Unity로 보내야 함
+            // Up 3초 유지, Down 충전 시간이 둘 다 이 반복 전송에 의존함
+            sendPose(poseName);
+        }
+
+        function updateResultUI(poseName, probability, title, guide) {
+            const resultElement = document.getElementById("main-result");
+
+            resultElement.classList.remove("pose-none", "pose-down", "pose-up");
+
+            if (poseName === "None") {
+                resultElement.classList.add("pose-none");
+            }
+            else if (poseName === "Down") {
+                resultElement.classList.add("pose-down");
+            }
+            else if (poseName === "Up") {
+                resultElement.classList.add("pose-up");
+            }
+
+            if (probability > 0) {
+                resultElement.innerHTML = title + "<br>확률: " + probability.toFixed(2);
+            }
+            else {
+                resultElement.innerHTML = title;
+            }
+
+            document.getElementById("guide-text").innerHTML = guide;
+        }
+
+        function updateLabelsWaiting() {
+            if (!labelContainer || !maxPredictions) return;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                labelContainer.children[i].innerHTML = `
+                    <span class="label-name">인식 대기</span>
+                    <span class="label-percent">--</span>
+                `;
+            }
+        }
+
+        function isPlayerInCenter(pose) {
+            if (!pose || !pose.keypoints || !overlayCanvas) return false;
+
+            // 어깨가 아니라 다리 포인트만 보고 중앙 판정
+            const legPoints = getLegPoints(pose);
+
+            // 최소 2개 이상은 보여야 다리가 있다고 판단
+            if (legPoints.length < 2) {
+                return false;
+            }
+
+            let legCenterX = 0;
+            let legCenterY = 0;
+
+            for (let i = 0; i < legPoints.length; i++) {
+                const p = mapToLegView(legPoints[i].position);
+                legCenterX += p.x;
+                legCenterY += p.y;
+            }
+
+            legCenterX /= legPoints.length;
+            legCenterY /= legPoints.length;
+
+            const centerX = overlayCanvas.width / 2;
+            const centerY = overlayCanvas.height / 2;
+
+            // 다리만 보는 화면 기준 중앙 박스
+            const rangeX = overlayCanvas.width * 0.46;
+            const rangeY = overlayCanvas.height * 0.46;
+
+            return (
+                legCenterX > centerX - rangeX &&
+                legCenterX < centerX + rangeX &&
+                legCenterY > centerY - rangeY &&
+                legCenterY < centerY + rangeY
+            );
+        }
+
+        function drawCenterBox() {
+            const centerX = overlayCanvas.width / 2;
+            const centerY = overlayCanvas.height / 2;
+
+            const rangeX = overlayCanvas.width * 0.46;
+            const rangeY = overlayCanvas.height * 0.46;
+
+            overlayCtx.strokeStyle = "#22c55e";
+            overlayCtx.lineWidth = 3;
+
+            overlayCtx.strokeRect(
+                centerX - rangeX,
+                centerY - rangeY,
+                rangeX * 2,
+                rangeY * 2
+            );
+
+            overlayCtx.fillStyle = "rgba(34, 197, 94, 0.08)";
+
+            overlayCtx.fillRect(
+                centerX - rangeX,
+                centerY - rangeY,
+                rangeX * 2,
+                rangeY * 2
+            );
+        }
+
+        function drawLegCenter(pose) {
+            if (!pose || !pose.keypoints) return;
+
+            const legPoints = getLegPoints(pose);
+
+            if (legPoints.length < 2) return;
+
+            let legCenterX = 0;
+            let legCenterY = 0;
+
+            for (let i = 0; i < legPoints.length; i++) {
+                const p = mapToLegView(legPoints[i].position);
+                legCenterX += p.x;
+                legCenterY += p.y;
+            }
+
+            legCenterX /= legPoints.length;
+            legCenterY /= legPoints.length;
+
+            overlayCtx.beginPath();
+            overlayCtx.arc(legCenterX, legCenterY, 8, 0, Math.PI * 2);
+            overlayCtx.fillStyle = "#facc15";
+            overlayCtx.fill();
+
+            overlayCtx.lineWidth = 2;
+            overlayCtx.strokeStyle = "#000000";
+            overlayCtx.stroke();
+        }
+
+        function sendPose(poseName) {
+            try {
+                if (window.unityInstance) {
+                    window.unityInstance.SendMessage("PoseTimeManager", "ReceivePose", poseName);
+
+                    console.log("Unity로 전송:", poseName);
+                    document.getElementById("server-status").innerHTML =
+                        "Unity로 전송됨: " + poseName;
+                }
+                else {
+                    console.warn("unityInstance를 아직 찾을 수 없음:", poseName);
+                    document.getElementById("server-status").innerHTML =
+                        "Unity 로딩 대기 중: " + poseName;
+                }
+            }
+            catch (error) {
+                console.warn("Unity 전송 실패:", error);
+                document.getElementById("server-status").innerHTML =
+                    "Unity 전송 실패";
+            }
+        }
+    </script>
+</body>
+</html>
