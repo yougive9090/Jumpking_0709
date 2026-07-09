@@ -364,7 +364,7 @@
     <!-- Teachable Machine Pose 인식 -->
     <script>
         // 여기를 네 Teachable Machine 모델 주소로 바꿔줘
-        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/NzEnZFdmK/";
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/zyau2PBcQ/";
 
         let model;
         let webcam;
@@ -398,8 +398,15 @@
         let downReadyTime = 0;
         let noneStartTime = 0;
 
+        // Up이 살짝 튀는 오인식을 막기 위한 변수
+        let upStartTime = 0;
+
         // Down을 이 시간 이상 유지해야 진짜 앉은 것으로 인정
         const minDownHoldMs = 500;
+
+        // Up을 이 시간 이상 연속 유지해야 진짜 일어난 것으로 인정
+        // 300으로 바꾸면 0.3초, 500으로 바꾸면 0.5초
+        const minUpHoldMs = 450;
 
         // Down 인정 후 이 시간 안에 Up이 와야 점프
         const maxUpAfterDownMs = 2000;
@@ -420,6 +427,29 @@
         // 0.36이면 위쪽 36%를 잘라내고, 엉덩이~발 쪽을 크게 보여줌
         const LEG_VIEW_TOP_RATIO = 0.36;
         const LEG_CONFIDENCE = 0.20;
+
+        // ==============================
+        // 뒤 사람 오인식 방지용 설정
+        // ==============================
+
+        // 기존 0.46은 박스가 너무 커서 뒤 사람이 지나가도 중앙 판정에 들어오기 쉬움
+        const CENTER_BOX_RANGE_X_RATIO = 0.30;
+        const CENTER_BOX_RANGE_Y_RATIO = 0.42;
+
+        // 다리 포인트가 최소 4개 이상 보여야 진짜 플레이어로 인정
+        const MIN_LEG_POINTS_FOR_PLAYER = 4;
+
+        // 처음 중앙에 잡힌 사람을 잠그고, 갑자기 다른 사람으로 튀면 무시
+        let lockedLegInfo = null;
+        let trackingLostStartTime = 0;
+
+        // 값이 작을수록 엄격함
+        const TRACK_MAX_CENTER_DISTANCE = 85;
+        const TRACK_MIN_AREA_RATIO = 0.40;
+        const TRACK_MAX_AREA_RATIO = 2.60;
+
+        // 플레이어가 화면에서 사라진 상태가 이 시간 이상이면 잠금 해제
+        const TRACK_LOST_RESET_MS = 1800;
 
         async function init() {
             if (isPoseRunning) {
@@ -628,10 +658,35 @@
                 let rawPose = "None";
                 let rawProbability = 0;
 
-                if (!isPlayerInCenter(pose)) {
+                const trackState = checkPlayerTracking(pose);
+
+                if (!trackState.ok) {
                     rawPose = "None";
                     rawProbability = 0;
                     updateLabelsWaiting();
+
+                    // 핵심: 뒤 사람이 지나가서 포즈가 다른 사람으로 튀면
+                    // Unity에 Up/Down을 새로 보내지 않고, 현재 자세를 잠깐 유지해서 오점프를 막음
+                    if (trackState.reason === "different_person") {
+                        updateResultUI(
+                            currentStablePose,
+                            0,
+                            "현재 상태: " + currentStablePose,
+                            "다른 사람 감지됨 → 무시 중"
+                        );
+
+                        if (currentStablePose === "Down") {
+                            sendPoseRepeated("Down");
+                        }
+                        else if (currentStablePose === "Up") {
+                            sendPoseRepeated("Up");
+                        }
+
+                        isPredicting = false;
+                        return;
+                    }
+
+                    handlePose(rawPose, rawProbability);
                 }
                 else {
                     const prediction = await model.predict(posenetOutput);
@@ -681,9 +736,9 @@
                         rawPose = "None";
                         rawProbability = noneProbability;
                     }
-                }
 
-                handlePose(rawPose, rawProbability);
+                    handlePose(rawPose, rawProbability);
+                }
             }
             catch (error) {
                 console.error("예측 오류:", error);
@@ -703,10 +758,16 @@
                 candidateCount = 1;
             }
 
+            // Up이 연속으로 유지되지 않으면 Up 인정 타이머를 초기화
+            if (rawPose !== "Up") {
+                upStartTime = 0;
+            }
+
             // Down 처리
             // Down은 Unity로 계속 보내야 앉아있는 시간이 Unity에서 정확히 누적됨
             if (rawPose === "Down" && candidateCount >= downStableFrameCount) {
                 noneStartTime = 0;
+                upStartTime = 0;
 
                 if (downStartTime === 0) {
                     downStartTime = now;
@@ -737,9 +798,35 @@
             }
 
             // Up 처리
-            // 시작 전 3초 유지가 작동하려면 그냥 서 있는 Up도 Unity로 계속 보내야 함
+            // 핵심: Up이 살짝 튀는 경우 바로 Unity로 보내면 점프해버리므로
+            // Up이 minUpHoldMs 이상 연속 유지될 때만 진짜 Up으로 인정함
             if (rawPose === "Up") {
                 noneStartTime = 0;
+
+                if (upStartTime === 0) {
+                    upStartTime = now;
+                }
+
+                const upHoldTime = now - upStartTime;
+
+                if (upHoldTime < minUpHoldMs) {
+                    updateResultUI(
+                        currentStablePose,
+                        rawProbability,
+                        "현재 상태: " + currentStablePose,
+                        "Up 확인 중: " + (upHoldTime / 1000).toFixed(1) + "초 / " + (minUpHoldMs / 1000).toFixed(1) + "초"
+                    );
+
+                    // 앉아있는 중에 Up이 잠깐 튄 거라면 Unity에는 계속 Down을 보내서 오점프를 막음
+                    if (currentStablePose === "Down") {
+                        sendPoseRepeated("Down");
+                    }
+                    else if (currentStablePose === "Up") {
+                        sendPoseRepeated("Up");
+                    }
+
+                    return;
+                }
 
                 currentStablePose = "Up";
 
@@ -747,10 +834,10 @@
                     "Up",
                     rawProbability,
                     "현재 상태: Up",
-                    "일어선 자세 감지 중"
+                    "일어선 자세 감지 완료"
                 );
 
-                // 중요: Up을 Unity로 반복 전송
+                // 중요: 충분히 유지된 Up만 Unity로 전송
                 sendPoseRepeated("Up");
 
                 const isValidJump =
@@ -765,6 +852,7 @@
                     jumpReady = false;
                     downStartTime = 0;
                     downReadyTime = 0;
+                    upStartTime = 0;
                     lastJumpTime = now;
 
                     // 점프 순간에는 확실하게 한 번 더 Up 전송
@@ -797,6 +885,7 @@
                     alreadyJumpedFromThisDown = false;
                     downStartTime = 0;
                     downReadyTime = 0;
+                    upStartTime = 0;
 
                     sendPoseRepeated("None");
                 }
@@ -881,50 +970,190 @@
             }
         }
 
-        function isPlayerInCenter(pose) {
-            if (!pose || !pose.keypoints || !overlayCanvas) return false;
+        function getLegInfo(pose) {
+            if (!pose || !pose.keypoints || !overlayCanvas) return null;
 
-            // 어깨가 아니라 다리 포인트만 보고 중앙 판정
             const legPoints = getLegPoints(pose);
 
-            // 최소 2개 이상은 보여야 다리가 있다고 판단
-            if (legPoints.length < 2) {
-                return false;
+            if (legPoints.length < MIN_LEG_POINTS_FOR_PLAYER) {
+                return null;
             }
 
-            let legCenterX = 0;
-            let legCenterY = 0;
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            let totalX = 0;
+            let totalY = 0;
+            let totalScore = 0;
 
             for (let i = 0; i < legPoints.length; i++) {
                 const p = mapToLegView(legPoints[i].position);
-                legCenterX += p.x;
-                legCenterY += p.y;
+
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+
+                totalX += p.x;
+                totalY += p.y;
+                totalScore += legPoints[i].score;
             }
 
-            legCenterX /= legPoints.length;
-            legCenterY /= legPoints.length;
+            const width = Math.max(maxX - minX, 1);
+            const height = Math.max(maxY - minY, 1);
+
+            return {
+                centerX: totalX / legPoints.length,
+                centerY: totalY / legPoints.length,
+                minX: minX,
+                maxX: maxX,
+                minY: minY,
+                maxY: maxY,
+                width: width,
+                height: height,
+                area: width * height,
+                pointCount: legPoints.length,
+                averageScore: totalScore / legPoints.length
+            };
+        }
+
+        function isLegInfoInCenter(legInfo) {
+            if (!legInfo || !overlayCanvas) return false;
 
             const centerX = overlayCanvas.width / 2;
             const centerY = overlayCanvas.height / 2;
 
-            // 다리만 보는 화면 기준 중앙 박스
-            const rangeX = overlayCanvas.width * 0.46;
-            const rangeY = overlayCanvas.height * 0.46;
+            const rangeX = overlayCanvas.width * CENTER_BOX_RANGE_X_RATIO;
+            const rangeY = overlayCanvas.height * CENTER_BOX_RANGE_Y_RATIO;
 
             return (
-                legCenterX > centerX - rangeX &&
-                legCenterX < centerX + rangeX &&
-                legCenterY > centerY - rangeY &&
-                legCenterY < centerY + rangeY
+                legInfo.centerX > centerX - rangeX &&
+                legInfo.centerX < centerX + rangeX &&
+                legInfo.centerY > centerY - rangeY &&
+                legInfo.centerY < centerY + rangeY
             );
+        }
+
+        function resetPlayerTracking() {
+            lockedLegInfo = null;
+            trackingLostStartTime = 0;
+        }
+
+        function cloneLegInfo(info) {
+            return {
+                centerX: info.centerX,
+                centerY: info.centerY,
+                minX: info.minX,
+                maxX: info.maxX,
+                minY: info.minY,
+                maxY: info.maxY,
+                width: info.width,
+                height: info.height,
+                area: info.area,
+                pointCount: info.pointCount,
+                averageScore: info.averageScore
+            };
+        }
+
+        function updateLockedLegInfo(info) {
+            if (!lockedLegInfo) {
+                lockedLegInfo = cloneLegInfo(info);
+                return;
+            }
+
+            // 너무 딱딱하게 고정하면 앉을 때 중심이 움직여서 끊기므로 부드럽게 따라가게 함
+            const lerp = 0.20;
+
+            lockedLegInfo.centerX = lockedLegInfo.centerX * (1 - lerp) + info.centerX * lerp;
+            lockedLegInfo.centerY = lockedLegInfo.centerY * (1 - lerp) + info.centerY * lerp;
+            lockedLegInfo.width = lockedLegInfo.width * (1 - lerp) + info.width * lerp;
+            lockedLegInfo.height = lockedLegInfo.height * (1 - lerp) + info.height * lerp;
+            lockedLegInfo.area = lockedLegInfo.area * (1 - lerp) + info.area * lerp;
+            lockedLegInfo.minX = lockedLegInfo.minX * (1 - lerp) + info.minX * lerp;
+            lockedLegInfo.maxX = lockedLegInfo.maxX * (1 - lerp) + info.maxX * lerp;
+            lockedLegInfo.minY = lockedLegInfo.minY * (1 - lerp) + info.minY * lerp;
+            lockedLegInfo.maxY = lockedLegInfo.maxY * (1 - lerp) + info.maxY * lerp;
+        }
+
+        function isSameLockedPlayer(info) {
+            if (!lockedLegInfo) return true;
+
+            const dx = info.centerX - lockedLegInfo.centerX;
+            const dy = info.centerY - lockedLegInfo.centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            const areaRatio = info.area / Math.max(lockedLegInfo.area, 1);
+
+            if (distance > TRACK_MAX_CENTER_DISTANCE) {
+                return false;
+            }
+
+            if (areaRatio < TRACK_MIN_AREA_RATIO || areaRatio > TRACK_MAX_AREA_RATIO) {
+                return false;
+            }
+
+            return true;
+        }
+
+        function checkPlayerTracking(pose) {
+            const now = Date.now();
+            const legInfo = getLegInfo(pose);
+
+            if (!legInfo || !isLegInfoInCenter(legInfo)) {
+                if (trackingLostStartTime === 0) {
+                    trackingLostStartTime = now;
+                }
+
+                if (now - trackingLostStartTime >= TRACK_LOST_RESET_MS) {
+                    resetPlayerTracking();
+                }
+
+                return {
+                    ok: false,
+                    reason: "no_player"
+                };
+            }
+
+            trackingLostStartTime = 0;
+
+            // 처음 중앙 박스 안에 들어온 사람을 플레이어로 잠금
+            if (!lockedLegInfo) {
+                updateLockedLegInfo(legInfo);
+
+                return {
+                    ok: true,
+                    reason: "locked"
+                };
+            }
+
+            // 중심/크기가 갑자기 많이 바뀌면 뒤 사람으로 판단하고 무시
+            if (!isSameLockedPlayer(legInfo)) {
+                return {
+                    ok: false,
+                    reason: "different_person"
+                };
+            }
+
+            updateLockedLegInfo(legInfo);
+
+            return {
+                ok: true,
+                reason: "same_player"
+            };
+        }
+
+        function isPlayerInCenter(pose) {
+            const legInfo = getLegInfo(pose);
+            return isLegInfoInCenter(legInfo);
         }
 
         function drawCenterBox() {
             const centerX = overlayCanvas.width / 2;
             const centerY = overlayCanvas.height / 2;
 
-            const rangeX = overlayCanvas.width * 0.46;
-            const rangeY = overlayCanvas.height * 0.46;
+            const rangeX = overlayCanvas.width * CENTER_BOX_RANGE_X_RATIO;
+            const rangeY = overlayCanvas.height * CENTER_BOX_RANGE_Y_RATIO;
 
             overlayCtx.strokeStyle = "#22c55e";
             overlayCtx.lineWidth = 3;
@@ -944,6 +1173,15 @@
                 rangeX * 2,
                 rangeY * 2
             );
+
+            // 잠긴 플레이어 기준점 표시
+            if (lockedLegInfo) {
+                overlayCtx.beginPath();
+                overlayCtx.arc(lockedLegInfo.centerX, lockedLegInfo.centerY, 10, 0, Math.PI * 2);
+                overlayCtx.strokeStyle = "#ef4444";
+                overlayCtx.lineWidth = 3;
+                overlayCtx.stroke();
+            }
         }
 
         function drawLegCenter(pose) {
